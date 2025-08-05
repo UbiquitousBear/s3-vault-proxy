@@ -17,6 +17,8 @@ dockers:
   - image_templates:
       - "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}"
       - "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest"
+    goos: linux
+    goarch: amd64
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -24,14 +26,6 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.source={{.GitURL}}"
-
-docker_manifests:
-  - name_template: "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:{{ .Version }}"
-  - name_template: "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest"
-    image_templates:
-      - "ghcr.io/{{ tolower .Env.GITHUB_REPOSITORY_OWNER }}/{{ .ProjectName }}:latest"
 
 archives:
   - format: tar.gz
