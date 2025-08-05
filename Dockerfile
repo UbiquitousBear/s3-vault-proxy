@@ -1,7 +1,9 @@
 FROM golang:1.21-alpine AS builder
 
 WORKDIR /app
-COPY go.mod go.sum ./
+# Copy go mod files
+COPY go.mod ./
+COPY go.sum* ./
 RUN go mod download
 
 COPY . .
