@@ -12,6 +12,7 @@ builds:
       - linux
     goarch:
       - amd64
+    binary: proxy
 
 dockers:
   - image_templates:
