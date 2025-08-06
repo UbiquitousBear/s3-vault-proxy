@@ -1,3 +1,3 @@
 FROM scratch
-ENTRYPOINT ["/proxy"]
-COPY proxy /
+ENTRYPOINT ["/s3-vault-proxy"]
+COPY s3-vault-proxy /
