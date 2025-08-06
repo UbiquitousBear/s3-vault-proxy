@@ -65,6 +65,13 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 		Str("x-amz-date", req.Header.Get("X-Amz-Date")).
 		Str("x-amz-content-sha256", req.Header.Get("X-Amz-Content-Sha256")).
 		Msg("Forwarding request to S3 with headers")
+	
+	// Dump all headers being sent to MinIO
+	logging.Debug().
+		Interface("all_headers", req.Header).
+		Str("request_uri", req.URL.RequestURI()).
+		Str("raw_query", req.URL.RawQuery).
+		Msg("Complete request dump to MinIO")
 
 	// Make the request
 	resp, err := c.httpClient.Do(req)
@@ -132,16 +139,14 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 		req.Header.Set(key, value)
 	}
 
-	// CRITICAL: Preserve the original Host header for MinIO domain validation
-	// MinIO is configured with MINIO_DOMAIN=xxx and expects this exact host
-	if originalHost != "" {
-		req.Host = originalHost
-		req.Header.Set("Host", originalHost)
-		logging.Debug().
-			Str("host", originalHost).
-			Str("endpoint", c.endpoint).
-			Msg("Preserved original Host header for MinIO domain validation")
-	}
+	// CRITICAL: Skip the Host header when forwarding to avoid signature mismatch
+	// AWS signatures are calculated with the original host, but MinIO needs
+	// the Host header to match the actual endpoint it's running on
+	// This allows MinIO to validate against its own host while AWS signatures remain valid
+	logging.Debug().
+		Str("original_host", originalHost).
+		Str("endpoint", c.endpoint).
+		Msg("Skipping Host header preservation to allow MinIO validation")
 
 	logger.Int("header_count", headerCount).
 		Str("final_host", req.Host).
@@ -158,6 +163,20 @@ func (c *Client) isHopByHopHeader(header string) bool {
 		"TE",
 		"Trailer",
 		"Keep-Alive",
+		// Strip proxy headers that confuse MinIO about scheme
+		"X-Forwarded-Proto",
+		"X-Forwarded-Scheme", 
+		"X-Scheme",
+		"Cf-Visitor",
+		"X-Forwarded-Host",
+		"X-Forwarded-Port",
+		"X-Forwarded-For",
+		"X-Real-Ip",
+		"X-Request-Id",
+		"Cf-Connecting-Ip",
+		"Cf-Ipcountry", 
+		"Cf-Ray",
+		"Cdn-Loop",
 	}
 
 	for _, hopHeader := range hopByHopHeaders {

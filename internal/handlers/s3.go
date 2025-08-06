@@ -75,8 +75,16 @@ func (h *S3Handler) ListObjects(c *fiber.Ctx) error {
 	bucket := c.Params("bucket")
 	path := fmt.Sprintf("/%s", bucket)
 	headers := h.extractHeaders(c)
+	queryString := c.Request().URI().QueryString()
 
-	resp, err := h.s3Client.ForwardRequest("GET", path, nil, headers, c.Request().URI().QueryString())
+	logging.Debug().
+		Str("bucket", bucket).
+		Str("path", path).
+		Str("original_query", string(queryString)).
+		Str("original_host", c.Get("Host")).
+		Msg("ListObjects request details")
+
+	resp, err := h.s3Client.ForwardRequest("GET", path, nil, headers, queryString)
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to list objects")
 		return c.Status(500).XML(types.ErrorResponse{
