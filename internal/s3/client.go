@@ -140,14 +140,17 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 		req.Header.Set(key, value)
 	}
 
-	// CRITICAL: Skip the Host header when forwarding to avoid signature mismatch
-	// AWS signatures are calculated with the original host, but MinIO needs
-	// the Host header to match the actual endpoint it's running on
-	// This allows MinIO to validate against its own host while AWS signatures remain valid
-	logging.Debug().
-		Str("original_host", originalHost).
-		Str("endpoint", c.endpoint).
-		Msg("Skipping Host header preservation to allow MinIO validation")
+	// CRITICAL: Preserve the original Host header for signature validation
+	// AWS signatures include the Host header, so MinIO must receive the exact
+	// same Host header that was used during signature calculation
+	if originalHost != "" {
+		req.Host = originalHost
+		req.Header.Set("Host", originalHost)
+		logging.Debug().
+			Str("host", originalHost).
+			Str("endpoint", c.endpoint).
+			Msg("Preserved original Host header for AWS signature validation")
+	}
 
 	logger.Int("header_count", headerCount).
 		Str("final_host", req.Host).
