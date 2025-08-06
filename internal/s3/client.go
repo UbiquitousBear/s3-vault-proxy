@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"s3-vault-proxy/internal/logging"
@@ -180,7 +181,7 @@ func (c *Client) isHopByHopHeader(header string) bool {
 	}
 
 	for _, hopHeader := range hopByHopHeaders {
-		if header == hopHeader {
+		if strings.EqualFold(header, hopHeader) {
 			return true
 		}
 	}
