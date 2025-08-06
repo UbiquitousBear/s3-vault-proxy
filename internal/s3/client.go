@@ -97,23 +97,23 @@ func (c *Client) HeadObject(bucket, key string, headers http.Header) (*http.Resp
 // copyHeaders copies headers from source to destination request, handling special cases
 func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 	var originalHost string
-	
+
 	logger := logging.Debug()
 	headerCount := 0
-	
+
 	for key, values := range headers {
 		if len(values) == 0 {
 			continue
 		}
-		
+
 		value := values[0]
 		headerCount++
-		
+
 		// Capture the original Host header for later
 		if key == "Host" {
 			originalHost = value
 		}
-		
+
 		// Skip hop-by-hop headers
 		if c.isHopByHopHeader(key) {
 			logging.Debug().
@@ -122,20 +122,21 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 				Msg("Skipping hop-by-hop header")
 			continue
 		}
-		
+
 		req.Header.Set(key, value)
 	}
-	
-	// CRITICAL: Override the Host field that Go's HTTP client sets automatically
-	// We must use the original Host header that the signature was calculated for
+
+	// CRITICAL: Preserve the original Host header for MinIO domain validation
+	// MinIO is configured with MINIO_DOMAIN=xxx and expects this exact host
 	if originalHost != "" {
 		req.Host = originalHost
 		req.Header.Set("Host", originalHost)
 		logging.Debug().
 			Str("host", originalHost).
-			Msg("Preserved original Host header for signature validation")
+			Str("endpoint", c.endpoint).
+			Msg("Preserved original Host header for MinIO domain validation")
 	}
-	
+
 	logger.Int("header_count", headerCount).
 		Str("final_host", req.Host).
 		Msg("Headers processed for S3 request")
@@ -152,7 +153,7 @@ func (c *Client) isHopByHopHeader(header string) bool {
 		"Trailer",
 		"Keep-Alive",
 	}
-	
+
 	for _, hopHeader := range hopByHopHeaders {
 		if header == hopHeader {
 			return true
