@@ -55,10 +55,16 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 	// Copy headers, preserving authentication and other important headers
 	c.copyHeaders(req, headers)
 
+	// Debug logging for signature-sensitive headers
 	logging.Debug().
 		Str("method", method).
 		Str("url", fullURL).
-		Msg("Forwarding request to S3")
+		Str("final_host", req.Host).
+		Str("authorization", req.Header.Get("Authorization")).
+		Str("date", req.Header.Get("Date")).
+		Str("x-amz-date", req.Header.Get("X-Amz-Date")).
+		Str("x-amz-content-sha256", req.Header.Get("X-Amz-Content-Sha256")).
+		Msg("Forwarding request to S3 with headers")
 
 	// Make the request
 	resp, err := c.httpClient.Do(req)
