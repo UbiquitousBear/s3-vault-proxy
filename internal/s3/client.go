@@ -14,6 +14,14 @@ import (
 	"s3-vault-proxy/internal/logging"
 )
 
+// minInt returns the minimum of two integers
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // Client handles communication with S3/MinIO backend
 type Client struct {
 	endpoint   string
@@ -36,6 +44,13 @@ func NewClient(endpoint string, caCertPath string) *Client {
 	}
 	
 	// Configure custom CA for internal MinIO if provided
+	logging.Debug().
+		Str("ca_path", caCertPath).
+		Str("endpoint", endpoint).
+		Bool("has_ca_path", caCertPath != "").
+		Bool("is_https", strings.HasPrefix(endpoint, "https://")).
+		Msg("S3 client CA certificate configuration check")
+		
 	if caCertPath != "" && strings.HasPrefix(endpoint, "https://") {
 		logging.Info().
 			Str("endpoint", endpoint).
@@ -45,6 +60,12 @@ func NewClient(endpoint string, caCertPath string) *Client {
 		if err != nil {
 			logging.Error().Err(err).Str("ca_path", caCertPath).Msg("Failed to read CA certificate")
 		} else {
+			logging.Debug().
+				Str("ca_path", caCertPath).
+				Int("cert_size", len(caCert)).
+				Str("cert_preview", string(caCert[:minInt(100, len(caCert))])).
+				Msg("Successfully read CA certificate")
+			
 			caCertPool := x509.NewCertPool()
 			if caCertPool.AppendCertsFromPEM(caCert) {
 				transport.TLSClientConfig = &tls.Config{
@@ -53,10 +74,20 @@ func NewClient(endpoint string, caCertPath string) *Client {
 				logging.Info().
 					Str("endpoint", endpoint).
 					Str("ca_path", caCertPath).
-					Msg("Configured S3 client with custom CA")
+					Msg("Successfully configured S3 client with custom CA")
 			} else {
-				logging.Error().Str("ca_path", caCertPath).Msg("Failed to parse CA certificate")
+				logging.Error().
+					Str("ca_path", caCertPath).
+					Int("cert_size", len(caCert)).
+					Msg("Failed to parse CA certificate - invalid PEM format")
 			}
+		}
+	} else {
+		if caCertPath == "" {
+			logging.Debug().Msg("No CA cert path provided - using system CA store")
+		}
+		if !strings.HasPrefix(endpoint, "https://") {
+			logging.Debug().Msg("HTTP endpoint - no CA certificate needed")
 		}
 	}
 	
