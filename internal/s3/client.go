@@ -117,13 +117,11 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 	// Copy headers, preserving authentication and other important headers
 	c.copyHeaders(req, headers)
 	
-	// Add X-Forwarded-Proto header for HTTPS requests to help MinIO with signature validation
-	if strings.HasPrefix(fullURL, "https://") {
-		req.Header.Set("X-Forwarded-Proto", "https")
-		logging.Debug().
-			Str("url", fullURL).
-			Msg("Added X-Forwarded-Proto: https for MinIO signature validation")
-	}
+	// For HTTP backend with HTTPS frontend, ensure MinIO receives correct signature context
+	// Remove any forwarded proto headers that might confuse MinIO's signature validation
+	req.Header.Del("X-Forwarded-Proto")
+	req.Header.Del("X-Forwarded-Scheme")
+	req.Header.Del("X-Scheme")
 
 	// Debug logging for signature-sensitive headers
 	logging.Debug().
@@ -210,8 +208,8 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 	}
 
 	// CRITICAL: Preserve the original Host header for signature validation
-	// AWS signatures include the Host header, so MinIO must receive the exact
-	// same Host header that was used during signature calculation
+	// The client signed the request with the external host (s3.r2-int.dev)
+	// MinIO must receive the same Host header that was used during signature calculation
 	if originalHost != "" {
 		req.Host = originalHost
 		req.Header.Set("Host", originalHost)
@@ -236,10 +234,7 @@ func (c *Client) isHopByHopHeader(header string) bool {
 		"TE",
 		"Trailer",
 		"Keep-Alive",
-		// Strip proxy headers that confuse MinIO about scheme
-		"X-Forwarded-Proto",
-		"X-Forwarded-Scheme", 
-		"X-Scheme",
+		// Note: X-Forwarded-Proto and related headers are handled explicitly in ForwardRequest
 		"Cf-Visitor",
 		"X-Forwarded-Host",
 		"X-Forwarded-Port",
