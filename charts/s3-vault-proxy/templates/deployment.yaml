@@ -1,0 +1,174 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "s3-vault-proxy.fullname" . }}
+  labels:
+    {{- include "s3-vault-proxy.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "s3-vault-proxy.selectorLabels" . | nindent 6 }}
+  {{- with .Values.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "s3-vault-proxy.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "s3-vault-proxy.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.port }}
+              protocol: TCP
+          env:
+            - name: PORT
+              value: {{ .Values.config.port | quote }}
+            - name: SERVER_HEADER
+              value: {{ .Values.config.serverHeader | quote }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.config.s3.endpoint | quote }}
+            {{- if .Values.config.s3.tls.enabled }}
+            - name: S3_CA_CERT_PATH
+              value: {{ printf "%s/%s" .Values.config.s3.tls.mountPath .Values.config.s3.tls.certKey | quote }}
+            {{- end }}
+            - name: VAULT_ADDR
+              value: {{ .Values.config.vault.addr | quote }}
+            {{- if and .Values.secrets.vaultToken.enabled (not .Values.secrets.vaultToken.existingSecret) }}
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "s3-vault-proxy.fullname" . }}-vault-token
+                  key: {{ .Values.secrets.vaultToken.key }}
+            {{- else if .Values.secrets.vaultToken.existingSecret }}
+            - name: VAULT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.vaultToken.existingSecret }}
+                  key: {{ .Values.secrets.vaultToken.key }}
+            {{- else if .Values.config.vault.token }}
+            - name: VAULT_TOKEN
+              value: {{ .Values.config.vault.token | quote }}
+            {{- end }}
+            {{- if .Values.config.vault.tokenPath }}
+            - name: VAULT_TOKEN_PATH
+              value: {{ .Values.config.vault.tokenPath | quote }}
+            {{- end }}
+            - name: LOG_LEVEL
+              value: {{ .Values.config.logging.level | quote }}
+            - name: LOG_FORMAT
+              value: {{ .Values.config.logging.format | quote }}
+            - name: LOG_TIME_FORMAT
+              value: {{ .Values.config.logging.timeFormat | quote }}
+            - name: BODY_LIMIT
+              value: {{ .Values.config.performance.bodyLimit | quote }}
+            - name: READ_BUFFER_SIZE
+              value: {{ .Values.config.performance.readBufferSize | quote }}
+            - name: WRITE_BUFFER_SIZE
+              value: {{ .Values.config.performance.writeBufferSize | quote }}
+            - name: READ_TIMEOUT
+              value: {{ .Values.config.performance.readTimeout | quote }}
+            - name: WRITE_TIMEOUT
+              value: {{ .Values.config.performance.writeTimeout | quote }}
+            - name: IDLE_TIMEOUT
+              value: {{ .Values.config.performance.idleTimeout | quote }}
+            - name: DISABLE_STARTUP_MSG
+              value: {{ .Values.config.performance.disableStartupMsg | quote }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- if .Values.healthCheck.enabled }}
+          {{- if .Values.healthCheck.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.liveness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.liveness.failureThreshold }}
+            successThreshold: {{ .Values.healthCheck.liveness.successThreshold }}
+          {{- end }}
+          {{- if .Values.healthCheck.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.healthCheck.readiness.path }}
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.readiness.failureThreshold }}
+            successThreshold: {{ .Values.healthCheck.readiness.successThreshold }}
+          {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.config.s3.tls.enabled }}
+            - name: s3-tls-cert
+              mountPath: {{ .Values.config.s3.tls.mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- with .Values.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.secrets.additionalSecrets }}
+            {{- range .Values.secrets.additionalSecrets }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
+      volumes:
+        {{- if .Values.config.s3.tls.enabled }}
+        - name: s3-tls-cert
+          secret:
+            secretName: {{ .Values.config.s3.tls.existingSecret }}
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- if .Values.secrets.additionalSecrets }}
+        {{- range .Values.secrets.additionalSecrets }}
+        - name: {{ .name }}
+          secret:
+            secretName: {{ .existingSecret }}
+        {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

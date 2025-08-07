@@ -1,0 +1,21 @@
+apiVersion: v2
+name: s3-vault-proxy
+description: A Helm chart for S3 Vault Proxy - Secure S3-compatible proxy with HashiCorp Vault encryption
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+home: https://github.com/UbiquitousBear/s3-vault-proxy
+sources:
+  - https://github.com/UbiquitousBear/s3-vault-proxy
+maintainers:
+  - name: UbiquitousBear
+keywords:
+  - s3
+  - vault
+  - encryption
+  - proxy
+  - hashicorp
+  - minio
+annotations:
+  category: Storage
+dependencies: []

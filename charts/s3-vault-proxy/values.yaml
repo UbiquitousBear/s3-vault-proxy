@@ -1,0 +1,226 @@
+# Default values for s3-vault-proxy
+# This is a YAML-formatted file.
+
+# Image configuration
+image:
+  repository: ghcr.io/ubiquitousbear/s3-vault-proxy
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Service Account
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod Security Context
+podSecurityContext:
+  fsGroup: 65534
+
+# Container Security Context
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 9000
+  targetPort: 9000
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt"
+  hosts:
+    - host: s3.r2-int.dev
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls:
+    - secretName: s3-vault-proxy-tls
+      hosts:
+        - s3.r2-int.dev
+
+# Resource limits and requests
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# Horizontal Pod Autoscaler
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Node selector, tolerations and affinity
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Application configuration
+config:
+  # Server configuration
+  port: "9000"
+  serverHeader: "S3-Vault-Proxy/1.0"
+  
+  # S3/MinIO backend configuration
+  s3:
+    endpoint: "http://minio:9000"
+    # Optional: CA certificate for HTTPS connections to S3/MinIO
+    tls:
+      enabled: false
+      # Use existing secret containing the CA certificate
+      existingSecret: ""
+      # Key name in the secret containing the certificate
+      certKey: "tls.crt"
+      # Mount path for the certificate
+      mountPath: "/etc/s3-tls"
+  
+  # Vault configuration
+  vault:
+    addr: "http://vault:8200"
+    # Token can be provided via secret or tokenPath
+    token: ""
+    tokenPath: "/vault/secrets/token"
+  
+  # Logging configuration
+  logging:
+    level: "info"          # debug, info, warn, error, disabled
+    format: "json"         # json, console
+    timeFormat: "15:04:05" # Only used for console format
+  
+  # Performance tuning
+  performance:
+    bodyLimit: "100MB"
+    readBufferSize: 4096
+    writeBufferSize: 4096
+    readTimeout: "30s"
+    writeTimeout: "30s"
+    idleTimeout: "120s"
+    disableStartupMsg: false
+
+# Secrets configuration
+secrets:
+  # Vault token secret
+  vaultToken:
+    # If enabled, creates a secret with the vault token
+    enabled: false
+    # Use existing secret instead of creating new one
+    existingSecret: ""
+    # Key name in the secret
+    key: "token"
+    # Value (only used if existingSecret is not set)
+    value: ""
+  
+  # Additional secrets can be mounted as files
+  additionalSecrets: []
+  # - name: ca-certificates
+  #   mountPath: /etc/ssl/certs
+  #   existingSecret: ca-cert-secret
+
+# ConfigMap for additional configuration files
+configMap:
+  enabled: false
+  data: {}
+  # config.json: |
+  #   {
+  #     "additional": "configuration"
+  #   }
+
+# Health check configuration
+healthCheck:
+  enabled: true
+  liveness:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+    path: /health
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+    successThreshold: 1
+    path: /ready
+
+# Pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# Deployment strategy
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Number of replicas
+replicaCount: 1
+
+# Environment variables
+env: []
+# - name: CUSTOM_VAR
+#   value: "custom-value"
+# - name: SECRET_VAR
+#   valueFrom:
+#     secretKeyRef:
+#       name: my-secret
+#       key: my-key
+
+# Volume mounts for token files or certificates
+volumeMounts: []
+# - name: vault-token
+#   mountPath: /vault/secrets
+#   readOnly: true
+
+volumes: []
+# - name: vault-token
+#   secret:
+#     secretName: vault-token-secret
+
+# Service Monitor for Prometheus (requires prometheus-operator)
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  annotations: {}
+  path: /metrics
+
+# Pod Monitor for Prometheus (requires prometheus-operator)
+podMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+  annotations: {}
+  path: /metrics
