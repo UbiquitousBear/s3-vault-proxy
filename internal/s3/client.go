@@ -102,31 +102,8 @@ func NewClient(endpoint string, caCertPath string) *Client {
 
 // ForwardRequest forwards an HTTP request to the S3 backend
 func (c *Client) ForwardRequest(method, path string, body io.Reader, headers http.Header, queryString []byte) (*http.Response, error) {
-	// Check if this was originally an HTTPS request from Cloudflare headers
-	originalScheme := "http"
-	if cfVisitor := headers.Get("Cf-Visitor"); cfVisitor != "" {
-		if strings.Contains(cfVisitor, `"scheme":"https"`) {
-			originalScheme = "https"
-		}
-	} else if xForwardedProto := headers.Get("X-Forwarded-Proto"); xForwardedProto == "https" {
-		originalScheme = "https"
-	}
-	
-	// Build URL with original scheme for AWS signature compatibility
-	var fullURL string
-	if originalScheme == "https" && strings.HasPrefix(c.endpoint, "http://") {
-		// Convert HTTP endpoint to HTTPS if original request was HTTPS
-		httpsEndpoint := strings.Replace(c.endpoint, "http://", "https://", 1)
-		fullURL = httpsEndpoint + path
-		logging.Debug().
-			Str("original_endpoint", c.endpoint).
-			Str("https_endpoint", httpsEndpoint).
-			Str("cf_visitor", headers.Get("Cf-Visitor")).
-			Msg("Converted endpoint to HTTPS for signature compatibility")
-	} else {
-		fullURL = c.endpoint + path
-	}
-	
+	// Always use the configured endpoint for the actual request
+	fullURL := c.endpoint + path
 	if queryString != nil && len(queryString) > 0 {
 		fullURL += "?" + string(queryString)
 	}
