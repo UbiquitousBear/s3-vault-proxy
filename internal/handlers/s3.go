@@ -169,10 +169,11 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 	path := fmt.Sprintf("/%s/%s", bucket, key)
 	headers := h.extractHeaders(c)
 	
-	// Create a reader from the original request body stream to preserve chunked encoding
+	// Use the raw Fiber request to preserve all original headers including Content-Length
+	// This is essential for AWS signature validation with chunked encoding
 	bodyReader := c.Request().BodyStream()
 	
-	resp, err := h.s3Client.ForwardRequest("PUT", path, bodyReader, headers, nil)
+	resp, err := h.s3Client.ForwardRequest("PUT", path, bodyReader, headers, c.Request().URI().QueryString())
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to store encrypted object")
 		return c.Status(500).XML(types.ErrorResponse{

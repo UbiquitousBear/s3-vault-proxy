@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -116,6 +117,16 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 
 	// Copy headers, preserving authentication and other important headers
 	c.copyHeaders(req, headers)
+	
+	// CRITICAL: For AWS chunked encoding, preserve the original Content-Length header
+	// Go's HTTP client might reset this to 0 for streaming bodies, breaking AWS signatures
+	if originalContentLength := headers.Get("Content-Length"); originalContentLength != "" {
+		req.Header.Set("Content-Length", originalContentLength)
+		// Set ContentLength field to prevent Go from overriding
+		if length, parseErr := strconv.ParseInt(originalContentLength, 10, 64); parseErr == nil {
+			req.ContentLength = length
+		}
+	}
 	
 	// For HTTP backend with HTTPS frontend, ensure MinIO receives correct signature context
 	// Remove any forwarded proto headers that might confuse MinIO's signature validation
