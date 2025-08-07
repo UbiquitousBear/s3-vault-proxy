@@ -2,9 +2,12 @@ package s3
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -24,17 +27,40 @@ type Interface interface {
 }
 
 // NewClient creates a new S3 client with connection pooling
-func NewClient(endpoint string) *Client {
+func NewClient(endpoint string, caCertPath string) *Client {
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  false,
+	}
+	
+	// Configure custom CA for internal MinIO if provided
+	if caCertPath != "" && strings.HasPrefix(endpoint, "https://") {
+		caCert, err := os.ReadFile(caCertPath)
+		if err != nil {
+			logging.Error().Err(err).Str("ca_path", caCertPath).Msg("Failed to read CA certificate")
+		} else {
+			caCertPool := x509.NewCertPool()
+			if caCertPool.AppendCertsFromPEM(caCert) {
+				transport.TLSClientConfig = &tls.Config{
+					RootCAs: caCertPool,
+				}
+				logging.Info().
+					Str("endpoint", endpoint).
+					Str("ca_path", caCertPath).
+					Msg("Configured S3 client with custom CA")
+			} else {
+				logging.Error().Str("ca_path", caCertPath).Msg("Failed to parse CA certificate")
+			}
+		}
+	}
+	
 	return &Client{
 		endpoint: endpoint,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 10,
-				IdleConnTimeout:     90 * time.Second,
-				DisableCompression:  false,
-			},
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }

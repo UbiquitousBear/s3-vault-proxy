@@ -39,7 +39,7 @@ func New(cfg *config.Config) (*Server, error) {
 	}
 
 	// Initialize S3 client
-	s3Client := s3.NewClient(cfg.S3Endpoint)
+	s3Client := s3.NewClient(cfg.S3Endpoint, "/etc/ssl/certs/minio-ca.crt")
 
 	// Initialize metadata service
 	metadataService := metadata.NewService(s3Client)
