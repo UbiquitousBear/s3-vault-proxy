@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -171,7 +172,7 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 	
 	// Use the raw Fiber request to preserve all original headers including Content-Length
 	// This is essential for AWS signature validation with chunked encoding
-	bodyReader := c.Request().BodyStream()
+	bodyReader := bytes.NewReader(c.Body())
 	
 	resp, err := h.s3Client.ForwardRequest("PUT", path, bodyReader, headers, c.Request().URI().QueryString())
 	if err != nil {
