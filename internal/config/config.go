@@ -27,6 +27,7 @@ type Config struct {
 	
 	// S3/MinIO configuration
 	S3Endpoint      string
+	S3CACertPath    string
 	
 	// Logging configuration
 	LogLevel        string
@@ -60,7 +61,8 @@ func LoadConfig() (*Config, error) {
 		VaultTokenPath: getEnv("VAULT_TOKEN_PATH", "/vault/secrets/token"),
 		
 		// S3 configuration
-		S3Endpoint: getEnv("S3_ENDPOINT", ""),
+		S3Endpoint:   getEnv("S3_ENDPOINT", ""),
+		S3CACertPath: getEnv("S3_CA_CERT_PATH", ""),
 		
 		// Logging configuration
 		LogLevel:      getEnv("LOG_LEVEL", "info"),

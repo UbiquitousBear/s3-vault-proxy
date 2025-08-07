@@ -37,6 +37,10 @@ func NewClient(endpoint string, caCertPath string) *Client {
 	
 	// Configure custom CA for internal MinIO if provided
 	if caCertPath != "" && strings.HasPrefix(endpoint, "https://") {
+		logging.Info().
+			Str("endpoint", endpoint).
+			Str("ca_path", caCertPath).
+			Msg("Loading custom CA certificate for S3 client")
 		caCert, err := os.ReadFile(caCertPath)
 		if err != nil {
 			logging.Error().Err(err).Str("ca_path", caCertPath).Msg("Failed to read CA certificate")
