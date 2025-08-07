@@ -135,8 +135,8 @@ func New(cfg *config.Config) (*Server, error) {
 	app.Put("/:bucket", s3Handler.CreateBucket)
 	app.Get("/:bucket", s3Handler.ListObjects)
 	app.Put("/:bucket/*", s3Handler.PutObject)
-	app.Get("/:bucket/*", s3Handler.GetObject)
 	app.Head("/:bucket/*", s3Handler.HeadObject)
+	app.Get("/:bucket/*", s3Handler.GetObject)
 	app.Delete("/:bucket/*", s3Handler.DeleteObject)
 
 	return &Server{
