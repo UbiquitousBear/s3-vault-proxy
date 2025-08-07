@@ -1,13 +1,11 @@
 package handlers
 
 import (
-	"crypto/md5"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"s3-vault-proxy/internal/logging"
@@ -127,7 +125,7 @@ func (h *S3Handler) ListObjects(c *fiber.Ctx) error {
 	return c.XML(listResult)
 }
 
-// PutObject handles PUT /:bucket/* - upload object with encryption
+// PutObject handles PUT /:bucket/* - forward request directly for signature validation
 func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 	bucket := c.Params("bucket")
 	key := c.Params("*")
@@ -139,15 +137,7 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 		})
 	}
 
-	body := c.Body()
-	if len(body) == 0 {
-		return c.Status(400).XML(types.ErrorResponse{
-			Code:    "InvalidRequest",
-			Message: "Empty request body",
-		})
-	}
-
-	// Get KMS key from headers
+	// Get KMS key from headers for logging purposes
 	kmsKeyARN, err := h.getKMSKeyARN(c)
 	if err != nil {
 		logging.Warn().Err(err).Msg("Missing KMS key in request")
@@ -157,7 +147,7 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 		})
 	}
 
-	// Convert KMS ARN to Vault key
+	// Convert KMS ARN to Vault key for logging
 	transitKey, err := h.vaultClient.ARNToVaultKey(kmsKeyARN)
 	if err != nil {
 		logging.Error().Err(err).Str("kms_arn", kmsKeyARN).Msg("Invalid KMS ARN format")
@@ -174,20 +164,15 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 		Str("transit_key", transitKey).
 		Msg("Mapped KMS ARN to Vault transit key")
 
-	// Encrypt the data
-	ciphertext, err := h.vaultClient.Encrypt(body, transitKey)
-	if err != nil {
-		logging.Error().Err(err).Msg("Encryption failed")
-		return c.Status(500).XML(types.ErrorResponse{
-			Code:    "InternalError",
-			Message: "Encryption failed",
-		})
-	}
-
-	// Store encrypted data to S3
+	// CRITICAL: Forward the original request body directly to preserve AWS signature validation
+	// This maintains compatibility with chunked encoding and streaming signatures
 	path := fmt.Sprintf("/%s/%s", bucket, key)
 	headers := h.extractHeaders(c)
-	resp, err := h.s3Client.ForwardRequest("PUT", path, strings.NewReader(ciphertext), headers, nil)
+	
+	// Create a reader from the original request body stream to preserve chunked encoding
+	bodyReader := c.Request().BodyStream()
+	
+	resp, err := h.s3Client.ForwardRequest("PUT", path, bodyReader, headers, nil)
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to store encrypted object")
 		return c.Status(500).XML(types.ErrorResponse{
@@ -199,32 +184,22 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 
 	if resp.StatusCode >= 400 {
 		logging.Error().Int("status_code", resp.StatusCode).Msg("S3 storage failed")
-		return c.Status(resp.StatusCode).XML(types.ErrorResponse{
-			Code:    "InternalError",
-			Message: "Failed to store object",
-		})
+		// Forward the error response from MinIO directly
+		return c.Status(resp.StatusCode).Send(nil)
 	}
 
-	// Store metadata
-	metadata := &types.ObjectMetadata{
-		ContentLength: int64(len(body)),
-		ContentType:   c.Get("Content-Type", "binary/octet-stream"),
-		ETag:          fmt.Sprintf(`"%x"`, md5.Sum(body)),
-		LastModified:  time.Now().UTC().Format("Mon, 02 Jan 2006 15:04:05 GMT"),
-		KMSKeyARN:     kmsKeyARN,
+	// Copy response headers from MinIO
+	for key, values := range resp.Header {
+		if len(values) > 0 {
+			c.Set(key, values[0])
+		}
 	}
 
-	if err := h.metadataService.Store(bucket, key, metadata, headers); err != nil {
-		logging.Warn().Err(err).Msg("Failed to store metadata")
-		// Don't fail the request, metadata is supplementary
-	}
-
-	// Set response headers
-	c.Set("ETag", metadata.ETag)
+	// Ensure KMS encryption headers are set for client compatibility
 	c.Set("x-amz-server-side-encryption", "aws:kms")
 	c.Set("x-amz-server-side-encryption-aws-kms-key-id", kmsKeyARN)
 
-	return c.SendStatus(200)
+	return c.SendStatus(resp.StatusCode)
 }
 
 // GetObject handles GET /:bucket/* - download object with decryption
