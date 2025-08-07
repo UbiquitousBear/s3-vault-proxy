@@ -204,122 +204,26 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 	return c.SendStatus(resp.StatusCode)
 }
 
-// GetObject handles GET /:bucket/* - download object with decryption
+// GetObject handles GET /:bucket/* - download object directly from Garage
 func (h *S3Handler) GetObject(c *fiber.Ctx) error {
 	bucket := c.Params("bucket")
 	key := c.Params("*")
 	headers := h.extractHeaders(c)
-
-	// Check if object exists in S3 first
 	path := fmt.Sprintf("/%s/%s", bucket, key)
-	headResp, err := h.s3Client.ForwardRequest("HEAD", path, nil, headers, nil)
-	if err != nil {
-		logging.Error().Err(err).Msg("Failed to check object existence")
-		return c.Status(500).XML(types.ErrorResponse{
-			Code:    "InternalError",
-			Message: "Failed to check object",
-		})
-	}
-	defer headResp.Body.Close()
 
-	if headResp.StatusCode >= 400 {
-		return c.Status(404).XML(types.ErrorResponse{
-			Code:    "NoSuchKey",
-			Message: "The specified key does not exist",
-		})
-	}
-
-	// Try to get metadata to determine if object is encrypted (without auth headers for internal requests)
-	storedMetadata, err := h.metadataService.Get(bucket, key, make(http.Header))
-	var isEncrypted bool
-	var transitKey string
-
-	if err != nil {
-		logging.Debug().Err(err).Msg("Failed to read metadata - object may be unencrypted")
-		isEncrypted = false
-	} else if storedMetadata.KMSKeyARN == "" {
-		logging.Debug().
-			Str("bucket", bucket).
-			Str("key", key).
-			Msg("No KMS key ARN found - treating as unencrypted")
-		isEncrypted = false
-	} else {
-		transitKey, err = h.vaultClient.ARNToVaultKey(storedMetadata.KMSKeyARN)
-		if err != nil {
-			logging.Error().Err(err).Msg("Invalid stored KMS ARN")
-			return c.Status(500).XML(types.ErrorResponse{
-				Code:    "InternalError",
-				Message: "Invalid encryption key information",
-			})
-		}
-		isEncrypted = true
-		logging.Debug().
-			Str("bucket", bucket).
-			Str("key", key).
-			Str("kms_arn", storedMetadata.KMSKeyARN).
-			Msg("Object is encrypted")
-	}
-
-	// Get object data from S3 (reuse the same path as the HEAD request)
+	// Forward the GET request directly to Garage - no encryption/metadata needed
 	resp, err := h.s3Client.ForwardRequest("GET", path, nil, headers, nil)
 	if err != nil {
-		logging.Error().Err(err).Msg("Failed to read object")
+		logging.Error().Err(err).Msg("Failed to get object")
 		return c.Status(500).XML(types.ErrorResponse{
 			Code:    "InternalError",
-			Message: "Failed to read object",
+			Message: "Failed to get object",
 		})
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		logging.Error().Int("status_code", resp.StatusCode).Msg("S3 read failed")
-		return c.Status(resp.StatusCode).XML(types.ErrorResponse{
-			Code:    "NoSuchKey",
-			Message: "The specified key does not exist",
-		})
-	}
-
-	objectBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		logging.Error().Err(err).Msg("Failed to read object data")
-		return c.Status(500).XML(types.ErrorResponse{
-			Code:    "InternalError",
-			Message: "Failed to read object data",
-		})
-	}
-
-	var data []byte
-	if isEncrypted {
-		// Decrypt the object data
-		data, err = h.vaultClient.Decrypt(string(objectBytes), transitKey)
-		if err != nil {
-			logging.Error().Err(err).Msg("Decryption failed")
-			return c.Status(500).XML(types.ErrorResponse{
-				Code:    "InternalError",
-				Message: "Decryption failed",
-			})
-		}
-		logging.Debug().
-			Str("bucket", bucket).
-			Str("key", key).
-			Msg("Successfully decrypted object")
-	} else {
-		data = objectBytes
-		logging.Debug().
-			Str("bucket", bucket).
-			Str("key", key).
-			Msg("Returning unencrypted object")
-	}
-
-	// Set response headers
-	if storedMetadata != nil {
-		h.setObjectHeaders(c, storedMetadata, isEncrypted)
-	} else {
-		h.copyResponseHeaders(c, resp.Header)
-	}
-
-	c.Set("Content-Length", strconv.Itoa(len(data)))
-	return c.Send(data)
+	// Forward the response directly from Garage
+	return h.forwardResponse(c, resp)
 }
 
 // HeadObject handles HEAD /:bucket/* - get object metadata
@@ -327,37 +231,21 @@ func (h *S3Handler) HeadObject(c *fiber.Ctx) error {
 	bucket := c.Params("bucket")
 	key := c.Params("*")
 	headers := h.extractHeaders(c)
-
-	// Forward the original HEAD request to check if object exists
 	path := fmt.Sprintf("/%s/%s", bucket, key)
+
+	// Forward the HEAD request directly to Garage and return the response
 	resp, err := h.s3Client.ForwardRequest("HEAD", path, nil, headers, nil)
 	if err != nil {
-		logging.Error().Err(err).Msg("Failed to check object existence")
+		logging.Error().Err(err).Msg("Failed to head object")
 		return c.Status(500).XML(types.ErrorResponse{
 			Code:    "InternalError",
-			Message: "Failed to check object",
+			Message: "Failed to head object",
 		})
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		return c.Status(resp.StatusCode).XML(types.ErrorResponse{
-			Code:    "NoSuchKey",
-			Message: "The specified key does not exist",
-		})
-	}
-
-	// Try to get stored metadata (without authentication headers for internal requests)
-	storedMetadata, err := h.metadataService.Get(bucket, key, make(http.Header))
-	if err != nil {
-		logging.Debug().Err(err).Msg("Failed to read metadata - using S3 headers")
-		// Fall back to copying headers from the S3 response
-		h.copyResponseHeaders(c, resp.Header)
-		return c.SendStatus(200)
-	}
-
-	h.setObjectHeaders(c, storedMetadata, storedMetadata.KMSKeyARN != "")
-	return c.SendStatus(200)
+	// Forward the response directly - no metadata service needed for plain storage
+	return h.forwardResponse(c, resp)
 }
 
 // DeleteObject handles DELETE /:bucket/* - delete object and metadata
