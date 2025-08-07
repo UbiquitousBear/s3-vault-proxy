@@ -134,10 +134,8 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 	req.Header.Del("X-Forwarded-Scheme")
 	req.Header.Del("X-Scheme")
 	
-	// Remove KMS encryption headers since MinIO doesn't have KMS configured
-	// The proxy handles encryption/decryption via Vault, not MinIO
-	req.Header.Del("X-Amz-Server-Side-Encryption")
-	req.Header.Del("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id")
+	// NOTE: We keep KMS headers because they're part of the signed headers
+	// MinIO will need to be configured to handle or ignore KMS encryption
 
 	// Debug logging for signature-sensitive headers
 	logging.Debug().
