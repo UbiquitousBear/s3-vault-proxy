@@ -210,15 +210,27 @@ func (h *S3Handler) GetObject(c *fiber.Ctx) error {
 	key := c.Params("*")
 	headers := h.extractHeaders(c)
 
-	if !h.metadataService.Exists(bucket, key, headers) {
+	// Check if object exists in S3 first
+	path := fmt.Sprintf("/%s/%s", bucket, key)
+	headResp, err := h.s3Client.ForwardRequest("HEAD", path, nil, headers, nil)
+	if err != nil {
+		logging.Error().Err(err).Msg("Failed to check object existence")
+		return c.Status(500).XML(types.ErrorResponse{
+			Code:    "InternalError",
+			Message: "Failed to check object",
+		})
+	}
+	defer headResp.Body.Close()
+
+	if headResp.StatusCode >= 400 {
 		return c.Status(404).XML(types.ErrorResponse{
 			Code:    "NoSuchKey",
 			Message: "The specified key does not exist",
 		})
 	}
 
-	// Try to get metadata to determine if object is encrypted
-	storedMetadata, err := h.metadataService.Get(bucket, key, headers)
+	// Try to get metadata to determine if object is encrypted (without auth headers for internal requests)
+	storedMetadata, err := h.metadataService.Get(bucket, key, make(http.Header))
 	var isEncrypted bool
 	var transitKey string
 
@@ -248,8 +260,7 @@ func (h *S3Handler) GetObject(c *fiber.Ctx) error {
 			Msg("Object is encrypted")
 	}
 
-	// Get object data from S3
-	path := fmt.Sprintf("/%s/%s", bucket, key)
+	// Get object data from S3 (reuse the same path as the HEAD request)
 	resp, err := h.s3Client.ForwardRequest("GET", path, nil, headers, nil)
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to read object")
@@ -317,20 +328,32 @@ func (h *S3Handler) HeadObject(c *fiber.Ctx) error {
 	key := c.Params("*")
 	headers := h.extractHeaders(c)
 
-	if !h.metadataService.Exists(bucket, key, headers) {
-		return c.Status(404).XML(types.ErrorResponse{
+	// Forward the original HEAD request to check if object exists
+	path := fmt.Sprintf("/%s/%s", bucket, key)
+	resp, err := h.s3Client.ForwardRequest("HEAD", path, nil, headers, nil)
+	if err != nil {
+		logging.Error().Err(err).Msg("Failed to check object existence")
+		return c.Status(500).XML(types.ErrorResponse{
+			Code:    "InternalError",
+			Message: "Failed to check object",
+		})
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return c.Status(resp.StatusCode).XML(types.ErrorResponse{
 			Code:    "NoSuchKey",
 			Message: "The specified key does not exist",
 		})
 	}
 
-	storedMetadata, err := h.metadataService.Get(bucket, key, headers)
+	// Try to get stored metadata (without authentication headers for internal requests)
+	storedMetadata, err := h.metadataService.Get(bucket, key, make(http.Header))
 	if err != nil {
-		logging.Error().Err(err).Msg("Failed to read metadata")
-		return c.Status(500).XML(types.ErrorResponse{
-			Code:    "InternalError",
-			Message: "Failed to read object metadata",
-		})
+		logging.Debug().Err(err).Msg("Failed to read metadata - using S3 headers")
+		// Fall back to copying headers from the S3 response
+		h.copyResponseHeaders(c, resp.Header)
+		return c.SendStatus(200)
 	}
 
 	h.setObjectHeaders(c, storedMetadata, storedMetadata.KMSKeyARN != "")

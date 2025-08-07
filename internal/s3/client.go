@@ -134,8 +134,8 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 	req.Header.Del("X-Forwarded-Scheme")
 	req.Header.Del("X-Scheme")
 	
-	// NOTE: We keep KMS headers because they're part of the signed headers
-	// MinIO will need to be configured to handle or ignore KMS encryption
+	// Keep KMS headers unchanged since they're part of the signed headers
+	// Any modification would break AWS signature validation
 
 	// Debug logging for signature-sensitive headers
 	logging.Debug().
