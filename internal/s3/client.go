@@ -41,9 +41,9 @@ func NewClient(endpoint string, caCertPath string) *Client {
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
 		IdleConnTimeout:     90 * time.Second,
-		DisableCompression:  false,
+		DisableCompression:  true,
 	}
-	
+
 	// Configure custom CA for internal MinIO if provided
 	logging.Debug().
 		Str("ca_path", caCertPath).
@@ -51,7 +51,7 @@ func NewClient(endpoint string, caCertPath string) *Client {
 		Bool("has_ca_path", caCertPath != "").
 		Bool("is_https", strings.HasPrefix(endpoint, "https://")).
 		Msg("S3 client CA certificate configuration check")
-		
+
 	if caCertPath != "" && strings.HasPrefix(endpoint, "https://") {
 		logging.Info().
 			Str("endpoint", endpoint).
@@ -66,7 +66,7 @@ func NewClient(endpoint string, caCertPath string) *Client {
 				Int("cert_size", len(caCert)).
 				Str("cert_preview", string(caCert[:minInt(100, len(caCert))])).
 				Msg("Successfully read CA certificate")
-			
+
 			caCertPool := x509.NewCertPool()
 			if caCertPool.AppendCertsFromPEM(caCert) {
 				transport.TLSClientConfig = &tls.Config{
@@ -91,7 +91,7 @@ func NewClient(endpoint string, caCertPath string) *Client {
 			logging.Debug().Msg("HTTP endpoint - no CA certificate needed")
 		}
 	}
-	
+
 	return &Client{
 		endpoint: endpoint,
 		httpClient: &http.Client{
@@ -117,7 +117,7 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 
 	// Copy headers, preserving authentication and other important headers
 	c.copyHeaders(req, headers)
-	
+
 	// CRITICAL: For AWS chunked encoding, preserve the original Content-Length header
 	// Go's HTTP client might reset this to 0 for streaming bodies, breaking AWS signatures
 	if originalContentLength := headers.Get("Content-Length"); originalContentLength != "" {
@@ -127,13 +127,17 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 			req.ContentLength = length
 		}
 	}
-	
+
 	// For HTTP backend with HTTPS frontend, ensure MinIO receives correct signature context
 	// Remove any forwarded proto headers that might confuse MinIO's signature validation
 	req.Header.Del("X-Forwarded-Proto")
 	req.Header.Del("X-Forwarded-Scheme")
 	req.Header.Del("X-Scheme")
-	
+	req.Header.Del("Accept-Encoding")
+	if acceptEncoding := headers.Get("accept-encoding"); acceptEncoding != "" {
+		req.Header["accept-encoding"] = []string{acceptEncoding}
+	}
+
 	// Keep KMS headers unchanged since they're part of the signed headers
 	// Any modification would break AWS signature validation
 
@@ -147,7 +151,7 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 		}
 		return ""
 	}
-	
+
 	logging.Debug().
 		Str("method", method).
 		Str("url", fullURL).
@@ -157,7 +161,7 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 		Str("x-amz-date", getHeaderCaseInsensitive("X-Amz-Date")).
 		Str("x-amz-content-sha256", getHeaderCaseInsensitive("X-Amz-Content-Sha256")).
 		Msg("Forwarding request to S3 with headers")
-	
+
 	// Dump all headers being sent to MinIO
 	logging.Debug().
 		Interface("all_headers", req.Header).
@@ -271,7 +275,7 @@ func (c *Client) isHopByHopHeader(header string) bool {
 		"X-Real-Ip",
 		"X-Request-Id",
 		"Cf-Connecting-Ip",
-		"Cf-Ipcountry", 
+		"Cf-Ipcountry",
 		"Cf-Ray",
 		"Cdn-Loop",
 	}
