@@ -138,14 +138,24 @@ func (c *Client) ForwardRequest(method, path string, body io.Reader, headers htt
 	// Any modification would break AWS signature validation
 
 	// Debug logging for signature-sensitive headers
+	// Use case-insensitive lookup since we preserve exact header case
+	getHeaderCaseInsensitive := func(headerName string) string {
+		for k, v := range req.Header {
+			if strings.EqualFold(k, headerName) && len(v) > 0 {
+				return v[0]
+			}
+		}
+		return ""
+	}
+	
 	logging.Debug().
 		Str("method", method).
 		Str("url", fullURL).
 		Str("final_host", req.Host).
-		Str("authorization", req.Header.Get("Authorization")).
-		Str("date", req.Header.Get("Date")).
-		Str("x-amz-date", req.Header.Get("X-Amz-Date")).
-		Str("x-amz-content-sha256", req.Header.Get("X-Amz-Content-Sha256")).
+		Str("authorization", getHeaderCaseInsensitive("Authorization")).
+		Str("date", getHeaderCaseInsensitive("Date")).
+		Str("x-amz-date", getHeaderCaseInsensitive("X-Amz-Date")).
+		Str("x-amz-content-sha256", getHeaderCaseInsensitive("X-Amz-Content-Sha256")).
 		Msg("Forwarding request to S3 with headers")
 	
 	// Dump all headers being sent to MinIO

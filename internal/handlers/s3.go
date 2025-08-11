@@ -291,7 +291,23 @@ func (h *S3Handler) extractHeaders(c *fiber.Ctx) http.Header {
 		// Use direct map assignment instead of Add() or Set() to avoid canonicalization
 		keyStr := string(key)
 		valueStr := string(value)
-		headers[keyStr] = append(headers[keyStr], valueStr)
+		
+		// Initialize slice if first occurrence of this header
+		if headers[keyStr] == nil {
+			headers[keyStr] = []string{valueStr}
+		} else {
+			// Only append if value is different to avoid duplicates
+			exists := false
+			for _, existingVal := range headers[keyStr] {
+				if existingVal == valueStr {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				headers[keyStr] = append(headers[keyStr], valueStr)
+			}
+		}
 	})
 	return headers
 }
