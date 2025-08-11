@@ -205,7 +205,7 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 		headerCount++
 
 		// Capture the original Host header for later
-		if key == "Host" {
+		if strings.EqualFold(key, "host") {
 			originalHost = value
 		}
 
@@ -218,7 +218,12 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 			continue
 		}
 
-		req.Header.Set(key, value)
+		// CRITICAL: Use direct header map assignment to preserve exact case
+		// Go's Header.Set() canonicalizes header names, breaking AWS signatures
+		if req.Header == nil {
+			req.Header = make(http.Header)
+		}
+		req.Header[key] = []string{value}
 	}
 
 	// CRITICAL: Preserve the original Host header for signature validation
@@ -226,7 +231,7 @@ func (c *Client) copyHeaders(req *http.Request, headers http.Header) {
 	// MinIO must receive the same Host header that was used during signature calculation
 	if originalHost != "" {
 		req.Host = originalHost
-		req.Header.Set("Host", originalHost)
+		req.Header["Host"] = []string{originalHost}
 		logging.Debug().
 			Str("host", originalHost).
 			Str("endpoint", c.endpoint).

@@ -287,9 +287,11 @@ func (h *S3Handler) DeleteObject(c *fiber.Ctx) error {
 func (h *S3Handler) extractHeaders(c *fiber.Ctx) http.Header {
 	headers := make(http.Header)
 	c.Request().Header.VisitAll(func(key, value []byte) {
-		// Use Add instead of Set to preserve exact header case
-		// Critical for AWS signature validation
-		headers[string(key)] = append(headers[string(key)], string(value))
+		// CRITICAL: Preserve exact header case for AWS signature validation
+		// Use direct map assignment instead of Add() or Set() to avoid canonicalization
+		keyStr := string(key)
+		valueStr := string(value)
+		headers[keyStr] = append(headers[keyStr], valueStr)
 	})
 	return headers
 }
