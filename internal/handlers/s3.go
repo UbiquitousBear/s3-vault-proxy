@@ -169,11 +169,11 @@ func (h *S3Handler) PutObject(c *fiber.Ctx) error {
 	// This maintains compatibility with chunked encoding and streaming signatures
 	path := fmt.Sprintf("/%s/%s", bucket, key)
 	headers := h.extractHeaders(c)
-	
+
 	// Use the raw Fiber request to preserve all original headers including Content-Length
 	// This is essential for AWS signature validation with chunked encoding
 	bodyReader := bytes.NewReader(c.Body())
-	
+
 	resp, err := h.s3Client.ForwardRequest("PUT", path, bodyReader, headers, c.Request().URI().QueryString())
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to store encrypted object")
@@ -212,7 +212,7 @@ func (h *S3Handler) GetObject(c *fiber.Ctx) error {
 	path := fmt.Sprintf("/%s/%s", bucket, key)
 
 	// Forward the GET request directly to Garage - no encryption/metadata needed
-	resp, err := h.s3Client.ForwardRequest("GET", path, nil, headers, nil)
+	resp, err := h.s3Client.ForwardRequest("GET", path, nil, headers, c.Request().URI().QueryString())
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to get object")
 		return c.Status(500).XML(types.ErrorResponse{
@@ -234,7 +234,7 @@ func (h *S3Handler) HeadObject(c *fiber.Ctx) error {
 	path := fmt.Sprintf("/%s/%s", bucket, key)
 
 	// Forward the HEAD request directly to Garage and return the response
-	resp, err := h.s3Client.ForwardRequest("HEAD", path, nil, headers, nil)
+	resp, err := h.s3Client.ForwardRequest("HEAD", path, nil, headers, c.Request().URI().QueryString())
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to head object")
 		return c.Status(500).XML(types.ErrorResponse{
@@ -256,7 +256,7 @@ func (h *S3Handler) DeleteObject(c *fiber.Ctx) error {
 
 	// Delete the main object
 	path := fmt.Sprintf("/%s/%s", bucket, key)
-	resp, err := h.s3Client.ForwardRequest("DELETE", path, nil, headers, nil)
+	resp, err := h.s3Client.ForwardRequest("DELETE", path, nil, headers, c.Request().URI().QueryString())
 	if err != nil {
 		logging.Error().Err(err).Msg("Failed to delete object")
 	} else {
@@ -291,7 +291,7 @@ func (h *S3Handler) extractHeaders(c *fiber.Ctx) http.Header {
 		// Use direct map assignment instead of Add() or Set() to avoid canonicalization
 		keyStr := string(key)
 		valueStr := string(value)
-		
+
 		// Initialize slice if first occurrence of this header
 		if headers[keyStr] == nil {
 			headers[keyStr] = []string{valueStr}
